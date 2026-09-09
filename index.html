@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GCash Station Tracker</title>
+    <!-- Google Fonts & Lucide Icons -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        :root {
+            --primary: #007DF4;
+            --primary-dark: #005bb5;
+            --success: #10B981;
+            --danger: #EF4444;
+            --bg: #F8FAFC;
+            --card-bg: #FFFFFF;
+            --text: #1E293B;
+            --border: #E2E8F0;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', sans-serif; }
+        body { background-color: var(--bg); color: var(--text); padding: 15px; max-width: 600px; margin: 0 auto; }
+
+        header { text-align: center; margin-bottom: 20px; }
+        header h1 { font-size: 1.4rem; color: var(--primary); display: flex; align-items: center; justify-content: center; gap: 8px; }
+        header p { font-size: 0.85rem; color: #64748B; margin-top: 2px; }
+
+        .tabs { display: flex; gap: 6px; margin-bottom: 20px; background: var(--card-bg); padding: 6px; border-radius: 14px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
+        .tab-btn { flex: 1; padding: 10px 4px; border: none; background: none; font-weight: 600; cursor: pointer; border-radius: 10px; font-size: 0.75rem; color: #64748B; transition: all 0.25s ease; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+        .tab-btn svg { width: 18px; height: 18px; }
+        .tab-btn.active { background: var(--primary); color: white; box-shadow: 0 4px 10px rgba(0, 125, 244, 0.3); }
+
+        .section { display: none; background: var(--card-bg); padding: 20px; border-radius: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.04); margin-bottom: 20px; }
+        .section.active { display: block; }
+
+        h2 { font-size: 1.05rem; margin-bottom: 16px; color: var(--text); display: flex; align-items: center; gap: 8px; }
+
+        .form-group { margin-bottom: 14px; }
+        label { display: block; font-size: 0.8rem; font-weight: 600; margin-bottom: 5px; color: #475569; }
+        input, select { width: 100%; max-width: 100%; padding: 11px 14px; border: 1px solid var(--border); border-radius: 10px; font-size: 0.95rem; outline: none; background: #F8FAFC; transition: 0.2s; }
+        input:focus, select:focus { border-color: var(--primary); background: #FFF; box-shadow: 0 0 0 3px rgba(0,125,244,0.1); }
+
+        .btn { width: 100%; padding: 13px; background: var(--primary); color: white; border: none; border-radius: 10px; font-weight: 600; font-size: 0.95rem; cursor: pointer; margin-top: 8px; display: flex; align-items: center; justify-content: center; gap: 8px; transition: 0.2s; box-shadow: 0 4px 12px rgba(0,125,244,0.25); }
+        .btn:hover { background: var(--primary-dark); }
+        .btn-danger { background: var(--danger); font-size: 0.75rem; padding: 5px 10px; width: auto; margin-top: 0; box-shadow: none; border-radius: 6px; color: white; border: none; cursor: pointer; }
+
+        .summary-card { background: linear-gradient(135deg, #007DF4 0%, #005bb5 100%); color: white; padding: 20px; border-radius: 14px; margin-bottom: 20px; text-align: center; box-shadow: 0 8px 20px rgba(0,125,244,0.2); }
+        .summary-card h3 { font-size: 0.85rem; opacity: 0.9; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .summary-card .amount { font-size: 2rem; font-weight: 700; }
+
+        .record-item { background: #F8FAFC; border: 1px solid var(--border); padding: 14px; border-radius: 12px; margin-bottom: 12px; font-size: 0.85rem; }
+        .record-header { display: flex; justify-content: space-between; align-items: center; font-weight: bold; color: var(--primary); margin-bottom: 8px; }
+        
+        .breakdown-card { background: #FFF; border: 1px solid var(--border); border-left: 4px solid var(--success); padding: 14px; border-radius: 10px; margin-bottom: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
+        .breakdown-header { display: flex; justify-content: space-between; font-weight: 700; font-size: 0.95rem; margin-bottom: 6px; }
+        .breakdown-details { display: flex; justify-content: space-between; font-size: 0.8rem; color: #64748B; border-top: 1px dashed var(--border); padding-top: 6px; }
+
+        .filter-container { background: #F1F5F9; padding: 12px; border-radius: 12px; margin-bottom: 15px; display: flex; flex-direction: column; gap: 8px; }
+        .filter-row { display: flex; gap: 8px; align-items: center; }
+        .filter-row input, .filter-row select { font-size: 0.85rem; padding: 8px 10px; background: #FFF; }
+
+        .inline-alert { font-size: 0.75rem; margin-top: 4px; font-weight: 600; display: block; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1><i data-lucide="wallet"></i> GCash Station Tracker</h1>
+        <p>Manage Cash-In, Cash-Out & Earnings</p>
+    </header>
+
+    <div class="tabs">
+        <button class="tab-btn active" onclick="switchTab('cashin', event)"><i data-lucide="arrow-down-left"></i> Cash-In</button>
+        <button class="tab-btn" onclick="switchTab('cashout', event)"><i data-lucide="arrow-up-right"></i> Cash-Out</button>
+        <button class="tab-btn" onclick="switchTab('summary', event)"><i data-lucide="bar-chart-3"></i> Summary</button>
+        <button class="tab-btn" onclick="switchTab('records', event)"><i data-lucide="history"></i> History</button>
+    </div>
+
+    <!-- CASH IN SECTION -->
+    <div id="cashin" class="section active">
+        <h2><i data-lucide="arrow-down-circle" style="color:var(--success)"></i> New Cash-In Transaction</h2>
+        <form id="cashinForm" onsubmit="addTransaction(event, 'Cash-In')">
+            <div class="form-group">
+                <label>Date & Time</label>
+                <input type="datetime-local" id="ci_date" required>
+            </div>
+            <div class="form-group">
+                <label>Customer Name *</label>
+                <input type="text" id="ci_name" placeholder="e.g. Juan Dela Cruz" required>
+            </div>
+            <div class="form-group">
+                <label>Recipient GCash Number * (11 digits)</label>
+                <input type="tel" id="ci_number" placeholder="09123456789" maxlength="11" pattern="^[0-9]{11}$" title="Must be exactly 11 numbers" required>
+            </div>
+            <div class="form-group">
+                <label>Amount Sent (₱) *</label>
+                <input type="number" step="0.01" id="ci_amount" placeholder="0.00" required>
+            </div>
+            <div class="form-group">
+                <label>Fee Charged (₱) *</label>
+                <input type="number" step="0.01" id="ci_fee" placeholder="0.00" required>
+            </div>
+            <div class="form-group">
+                <label>Optional Reference Number</label>
+                <input type="text" id="ci_ref" placeholder="Optional ref code">
+            </div>
+            <button type="submit" class="btn"><i data-lucide="check-circle"></i> Save Cash-In</button>
+        </form>
+    </div>
+
+    <!-- CASH OUT SECTION -->
+    <div id="cashout" class="section">
+        <h2><i data-lucide="arrow-up-circle" style="color:var(--primary)"></i> New Cash-Out Transaction</h2>
+        <form id="cashoutForm" onsubmit="addTransaction(event, 'Cash-Out')">
+            <div class="form-group">
+                <label>Transaction Date (Sent Date)</label>
+                <input type="datetime-local" id="co_date" required>
+            </div>
+            <div class="form-group">
+                <label>Claim Date & Time (When cash was given out)</label>
+                <input type="datetime-local" id="co_claim_date" required>
+            </div>
+            <div class="form-group">
+                <label>Customer Name *</label>
+                <input type="text" id="co_name" placeholder="e.g. Maria Santos" required>
+            </div>
+            <div class="form-group">
+                <label>Transaction Type</label>
+                <select id="co_type">
+                    <option value="Direct GCash Send">Direct GCash Send</option>
+                    <option value="Bank Transfer">Bank Transfer</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Amount Given Out (₱) *</label>
+                <input type="number" step="0.01" id="co_amount" placeholder="0.00" required>
+            </div>
+            <div class="form-group">
+                <label>Fee Collected (₱) *</label>
+                <input type="number" step="0.01" id="co_fee" placeholder="0.00" required>
+            </div>
+            <div class="form-group">
+                <label>Required Reference Code * (13 digits)</label>
+                <input type="text" id="co_ref" placeholder="13-digit reference code" maxlength="13" pattern="^[0-9]{13}$" title="Must be exactly 13 digits" oninput="liveCheckRef(this.value)" required>
+                <span id="refLiveAlert" class="inline-alert"></span>
+            </div>
+            <button type="submit" class="btn"><i data-lucide="check-circle"></i> Save Cash-Out</button>
+        </form>
+    </div>
+
+    <!-- SUMMARY SECTION -->
+    <div id="summary" class="section">
+        <h2><i data-lucide="trending-up"></i> Earnings Breakdown</h2>
+        <div class="summary-card">
+            <h3>Total Fees Earned (All Time)</h3>
+            <div class="amount" id="totalEarnings">₱0.00</div>
+        </div>
+
+        <div class="tabs" style="margin-bottom: 15px;">
+            <button class="tab-btn active" onclick="switchSummaryTab('daily', event)">Daily</button>
+            <button class="tab-btn" onclick="switchSummaryTab('weekly', event)">Weekly</button>
+            <button class="tab-btn" onclick="switchSummaryTab('monthly', event)">Monthly</button>
+        </div>
+
+        <div id="summaryDaily" class="summary-sub-view">
+            <div id="dailyList"></div>
+        </div>
+        <div id="summaryWeekly" class="summary-sub-view" style="display:none;">
+            <div id="weeklyList"></div>
+        </div>
+        <div id="summaryMonthly" class="summary-sub-view" style="display:none;">
+            <div id="monthlyList"></div>
+        </div>
+    </div>
+
+    <!-- RECORDS HISTORY SECTION -->
+    <div id="records" class="section">
+        <h2><i data-lucide="list"></i> Transaction History</h2>
+        
+        <div class="filter-container">
+            <div class="filter-row">
+                <input type="text" id="filterSearch" placeholder="🔍 Search name or reference..." oninput="renderRecords()">
+                <select id="filterType" onchange="renderRecords()" style="flex: 0.8;">
+                    <option value="ALL">All Types</option>
+                    <option value="Cash-In">Cash-In Only</option>
+                    <option value="Cash-Out">Cash-Out Only</option>
+                </select>
+            </div>
+            <div class="filter-row">
+                <input type="date" id="filterDate" onchange="renderRecords()">
+                <button class="btn-danger" style="padding: 9px 14px;" onclick="clearFilters()">Reset</button>
+            </div>
+        </div>
+
+        <div style="margin-bottom: 15px;">
+            <button class="btn btn-secondary" onclick="exportData()" style="margin-top:0; background:#475569; width:100%;"><i data-lucide="download"></i> Export to CSV</button>
+        </div>
+
+        <div id="recordsList"></div>
+    </div>
+
+    <script>
+        lucide.createIcons();
+
+        function setCurrentTime() {
+            const now = new Date();
+            now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+            const isoString = now.toISOString().slice(0,16);
+            document.getElementById('ci_date').value = isoString;
+            document.getElementById('co_date').value = isoString;
+            document.getElementById('co_claim_date').value = isoString;
+        }
+        setCurrentTime();
+
+        let transactions = JSON.parse(localStorage.getItem('gcash_transactions')) || [];
+
+        function switchTab(tabId, event) {
+            document.querySelectorAll('.section').forEach(sec => sec.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById(tabId).classList.add('active');
+            let btn = event.target.closest('.tab-btn');
+            if(btn) btn.classList.add('active');
+
+            if(tabId === 'summary') renderSummary();
+            if(tabId === 'records') renderRecords();
+        }
+
+        function switchSummaryTab(subView, event) {
+            document.querySelectorAll('.summary-sub-view').forEach(v => v.style.display = 'none');
+            event.target.closest('.tabs').querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            event.target.classList.add('active');
+            document.getElementById('summary' + subView.charAt(0).toUpperCase() + subView.slice(1)).style.display = 'block';
+        }
+
+        function liveCheckRef(val) {
+            val = val.trim();
+            let alertSpan = document.getElementById('refLiveAlert');
+            if(!val) {
+                alertSpan.innerHTML = '';
+                return;
+            }
+            let found = transactions.find(t => t.ref === val);
+            if(found) {
+                alertSpan.innerHTML = `<span style="color:var(--danger)">❌ Already claimed/logged (${found.type} by ${found.name})</span>`;
+            } else {
+                alertSpan.innerHTML = `<span style="color:var(--success)">✔️ Reference code is unique</span>`;
+            }
+        }
+
+        function addTransaction(e, type) {
+            e.preventDefault();
+            let tx = { id: Date.now(), type: type };
+
+            if(type === 'Cash-In') {
+                let num = document.getElementById('ci_number').value;
+                if(!/^\d{11}$/.test(num)) {
+                    alert('GCash number must be exactly 11 digits numbers only!');
+                    return;
+                }
+                tx.date = document.getElementById('ci_date').value;
+                tx.claimDate = tx.date;
+                tx.name = document.getElementById('ci_name').value;
+                tx.identifier = num;
+                tx.amount = parseFloat(document.getElementById('ci_amount').value);
+                tx.fee = parseFloat(document.getElementById('ci_fee').value);
+                tx.ref = document.getElementById('ci_ref').value.trim() || 'N/A';
+            } else {
+                let ref = document.getElementById('co_ref').value.trim();
+                if(!/^\d{13}$/.test(ref)) {
+                    alert('Cash-Out Reference Code must be exactly 13 digits numbers only!');
+                    return;
+                }
+                let exists = transactions.some(t => t.ref === ref);
+                if(exists) {
+                    alert('⚠️ Warning: This 13-digit Reference Code has already been claimed/logged previously!');
+                }
+
+                tx.date = document.getElementById('co_date').value;
+                tx.claimDate = document.getElementById('co_claim_date').value;
+                tx.name = document.getElementById('co_name').value;
+                tx.identifier = document.getElementById('co_type').value;
+                tx.amount = parseFloat(document.getElementById('co_amount').value);
+                tx.fee = parseFloat(document.getElementById('co_fee').value);
+                tx.ref = ref;
+            }
+
+            transactions.unshift(tx);
+            localStorage.setItem('gcash_transactions', JSON.stringify(transactions));
+            alert(type + ' Saved Successfully!');
+            e.target.reset();
+            document.getElementById('refLiveAlert').innerHTML = '';
+            setCurrentTime();
+        }
+
+        function deleteTx(id) {
+            if(confirm('Are you sure you want to delete this record?')) {
+                transactions = transactions.filter(t => t.id !== id);
+                localStorage.setItem('gcash_transactions', JSON.stringify(transactions));
+                renderRecords();
+                renderSummary();
+            }
+        }
+
+        function clearFilters() {
+            document.getElementById('filterSearch').value = '';
+            document.getElementById('filterType').value = 'ALL';
+            document.getElementById('filterDate').value = '';
+            renderRecords();
+        }
+
+        function renderRecords() {
+            const container = document.getElementById('recordsList');
+            let searchTxt = document.getElementById('filterSearch').value.toLowerCase();
+            let typeVal = document.getElementById('filterType').value;
+            let dateVal = document.getElementById('filterDate').value;
+
+            let filtered = transactions.filter(t => {
+                let matchesType = (typeVal === 'ALL' || t.type === typeVal);
+                let matchesDate = (!dateVal || t.date.startsWith(dateVal) || t.claimDate.startsWith(dateVal));
+                let matchesSearch = (!searchTxt || t.name.toLowerCase().includes(searchTxt) || t.ref.toLowerCase().includes(searchTxt) || t.identifier.toLowerCase().includes(searchTxt));
+                return matchesType && matchesDate && matchesSearch;
+            });
+
+            if(filtered.length === 0) {
+                container.innerHTML = '<p style="text-align:center; color:#64748B; padding: 20px;">No matching transactions found.</p>';
+                return;
+            }
+
+            container.innerHTML = filtered.map(t => `
+                <div class="record-item">
+                    <div class="record-header">
+                        <span>${t.type} — ₱${t.fee.toFixed(2)} Fee</span>
+                        <button class="btn-danger" onclick="deleteTx(${t.id})">Delete</button>
+                    </div>
+                    <div><b>Sent Date:</b> ${t.date.replace('T', ' ')}</div>
+                    ${t.type === 'Cash-Out' ? `<div><b>Claim Date:</b> ${t.claimDate.replace('T', ' ')}</div>` : ''}
+                    <div><b>Name:</b> ${t.name}</div>
+                    <div><b>${t.type === 'Cash-In' ? 'Number' : 'Type'}:</b> ${t.identifier}</div>
+                    <div><b>Amount:</b> ₱${t.amount.toFixed(2)} | <b>Ref:</b> ${t.ref}</div>
+                </div>
+            `).join('');
+        }
+
+        function renderSummary() {
+            let totalAllTime = 0;
+            let dailyMap = {}, weeklyMap = {}, monthlyMap = {};
+
+            transactions.forEach(t => {
+                totalAllTime += t.fee;
+                let day = t.claimDate.split('T')[0];
+                let month = day.substring(0, 7);
+                
+                let d = new Date(day);
+                let year = d.getFullYear();
+                let oneJan = new Date(year,0,1);
+                let weekNum = Math.ceil((((d - oneJan) / 86400000) + oneJan.getDay()+1)/7);
+                let weekKey = `${year}-W${weekNum < 10 ? '0' : ''}${weekNum}`;
+
+                if(!dailyMap[day]) dailyMap[day] = { in: 0, out: 0, total: 0 };
+                if(t.type === 'Cash-In') dailyMap[day].in += t.fee; else dailyMap[day].out += t.fee;
+                dailyMap[day].total += t.fee;
+
+                if(!weeklyMap[weekKey]) weeklyMap[weekKey] = { in: 0, out: 0, total: 0 };
+                if(t.type === 'Cash-In') weeklyMap[weekKey].in += t.fee; else weeklyMap[weekKey].out += t.fee;
+                weeklyMap[weekKey].total += t.fee;
+
+                if(!monthlyMap[month]) monthlyMap[month] = { in: 0, out: 0, total: 0 };
+                if(t.type === 'Cash-In') monthlyMap[month].in += t.fee; else monthlyMap[month].out += t.fee;
+                monthlyMap[month].total += t.fee;
+            });
+
+            document.getElementById('totalEarnings').innerText = '₱' + totalAllTime.toFixed(2);
+
+            let sortedDays = Object.keys(dailyMap).sort().reverse();
+            document.getElementById('dailyList').innerHTML = sortedDays.length === 0 ? '<p style="text-align:center; color:#64748B;">No data.</p>' : sortedDays.map(d => `
+                <div class="breakdown-card">
+                    <div class="breakdown-header"><span>📅 ${d}</span><span style="color:var(--success)">₱${dailyMap[d].total.toFixed(2)}</span></div>
+                    <div class="breakdown-details"><span>In Fees: ₱${dailyMap[d].in.toFixed(2)}</span><span>Out Fees: ₱${dailyMap[d].out.toFixed(2)}</span></div>
+                </div>
+            `).join('');
+
+            let sortedWeeks = Object.keys(weeklyMap).sort().reverse();
+            document.getElementById('weeklyList').innerHTML = sortedWeeks.length === 0 ? '<p style="text-align:center; color:#64748B;">No data.</p>' : sortedWeeks.map(w => `
+                <div class="breakdown-card" style="border-left-color: var(--primary);">
+                    <div class="breakdown-header"><span>📆 Week: ${w}</span><span style="color:var(--success)">₱${weeklyMap[w].total.toFixed(2)}</span></div>
+                    <div class="breakdown-details"><span>In Fees: ₱${weeklyMap[w].in.toFixed(2)}</span><span>Out Fees: ₱${weeklyMap[w].out.toFixed(2)}</span></div>
+                </div>
+            `).join('');
+
+            let sortedMonths = Object.keys(monthlyMap).sort().reverse();
+            document.getElementById('monthlyList').innerHTML = sortedMonths.length === 0 ? '<p style="text-align:center; color:#64748B;">No data.</p>' : sortedMonths.map(m => `
+                <div class="breakdown-card" style="border-left-color: #8B5CF6;">
+                    <div class="breakdown-header"><span>🗓️ Month: ${m}</span><span style="color:var(--success)">₱${monthlyMap[m].total.toFixed(2)}</span></div>
+                    <div class="breakdown-details"><span>In Fees: ₱${monthlyMap[m].in.toFixed(2)}</span><span>Out Fees: ₱${monthlyMap[m].out.toFixed(2)}</span></div>
+                </div>
+            `).join('');
+        }
+
+        function exportData() {
+            if(transactions.length === 0) { alert('No data to export!'); return; }
+            let csv = 'Type,Sent Date,Claim Date,Name,Identifier/Method,Amount,Fee,Reference\n';
+            transactions.forEach(t => {
+                csv += `"${t.type}","${t.date}","${t.claimDate}","${t.name}","${t.identifier}",${t.amount},${t.fee},"${t.ref}"\n`;
+            });
+            let blob = new Blob([csv], { type: 'text/csv' });
+            let url = window.URL.createObjectURL(blob);
+            let a = document.createElement('a');
+            a.setAttribute('href', url);
+            a.setAttribute('download', 'gcash_tracker_records.csv');
+            a.click();
+        }
+    </script>
+</body>
+</html>
