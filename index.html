@@ -372,33 +372,46 @@
             let totalAllTime = 0;
             let dailyMap = {}, weeklyMap = {}, monthlyMap = {};
 
+            const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
             transactions.forEach(t => {
                 totalAllTime += t.fee;
-                let day = (t.claim_date || t.date).split('T')[0];
-                let month = day.substring(0, 7);
+                let dayStr = (t.claim_date || t.date).split('T')[0];
+                let d = new Date(dayStr);
                 
-                let d = new Date(day);
+                // 1. Format Daily: e.g., "September 10, 2026" or "August 24, 2026"
+                let dayFormatted = `${monthNames[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+
+                // 2. Format Monthly: e.g., "September 2026", "August 2026"
+                let monthFormatted = `${monthNames[d.getMonth()]} ${d.getFullYear()}`;
+
+                // 3. Format Weekly dynamically based on that specific month and year
                 let year = d.getFullYear();
-                let oneJan = new Date(year,0,1);
-                let weekNum = Math.ceil((((d - oneJan) / 86400000) + oneJan.getDay()+1)/7);
-                let weekKey = `${year}-W${weekNum < 10 ? '0' : ''}${weekNum}`;
+                let monthIdx = d.getMonth();
+                let firstDayOfMonth = new Date(year, monthIdx, 1);
+                let weekNum = Math.ceil((d.getDate() + firstDayOfMonth.getDay()) / 7);
+                let weekFormatted = `${monthNames[monthIdx]} ${year} - Week ${weekNum}`;
 
-                if(!dailyMap[day]) dailyMap[day] = { in: 0, out: 0, total: 0 };
-                if(t.type === 'Cash-In') dailyMap[day].in += t.fee; else dailyMap[day].out += t.fee;
-                dailyMap[day].total += t.fee;
+                // Populate Daily Map
+                if(!dailyMap[dayFormatted]) dailyMap[dayFormatted] = { in: 0, out: 0, total: 0, rawDate: dayStr };
+                if(t.type === 'Cash-In') dailyMap[dayFormatted].in += t.fee; else dailyMap[dayFormatted].out += t.fee;
+                dailyMap[dayFormatted].total += t.fee;
 
-                if(!weeklyMap[weekKey]) weeklyMap[weekKey] = { in: 0, out: 0, total: 0 };
-                if(t.type === 'Cash-In') weeklyMap[weekKey].in += t.fee; else weeklyMap[weekKey].out += t.fee;
-                weeklyMap[weekKey].total += t.fee;
+                // Populate Weekly Map
+                if(!weeklyMap[weekFormatted]) weeklyMap[weekFormatted] = { in: 0, out: 0, total: 0, rawDate: dayStr };
+                if(t.type === 'Cash-In') weeklyMap[weekFormatted].in += t.fee; else weeklyMap[weekFormatted].out += t.fee;
+                weeklyMap[weekFormatted].total += t.fee;
 
-                if(!monthlyMap[month]) monthlyMap[month] = { in: 0, out: 0, total: 0 };
-                if(t.type === 'Cash-In') monthlyMap[month].in += t.fee; else monthlyMap[month].out += t.fee;
-                monthlyMap[month].total += t.fee;
+                // Populate Monthly Map
+                if(!monthlyMap[monthFormatted]) monthlyMap[monthFormatted] = { in: 0, out: 0, total: 0, rawDate: dayStr };
+                if(t.type === 'Cash-In') monthlyMap[monthFormatted].in += t.fee; else monthlyMap[monthFormatted].out += t.fee;
+                monthlyMap[monthFormatted].total += t.fee;
             });
 
             document.getElementById('totalEarnings').innerText = '₱' + totalAllTime.toFixed(2);
 
-            let sortedDays = Object.keys(dailyMap).sort().reverse();
+            // Sort and Render Daily
+            let sortedDays = Object.keys(dailyMap).sort((a,b) => new Date(dailyMap[b].rawDate) - new Date(dailyMap[a].rawDate));
             document.getElementById('dailyList').innerHTML = sortedDays.length === 0 ? '<p style="text-align:center; color:#64748B;">No data.</p>' : sortedDays.map(d => `
                 <div class="breakdown-card">
                     <div class="breakdown-header"><span>📅 ${d}</span><span style="color:var(--success)">₱${dailyMap[d].total.toFixed(2)}</span></div>
@@ -406,18 +419,20 @@
                 </div>
             `).join('');
 
-            let sortedWeeks = Object.keys(weeklyMap).sort().reverse();
+            // Sort and Render Weekly
+            let sortedWeeks = Object.keys(weeklyMap).sort((a,b) => new Date(weeklyMap[b].rawDate) - new Date(weeklyMap[a].rawDate));
             document.getElementById('weeklyList').innerHTML = sortedWeeks.length === 0 ? '<p style="text-align:center; color:#64748B;">No data.</p>' : sortedWeeks.map(w => `
                 <div class="breakdown-card" style="border-left-color: var(--primary);">
-                    <div class="breakdown-header"><span>📆 Week: ${w}</span><span style="color:var(--success)">₱${weeklyMap[w].total.toFixed(2)}</span></div>
+                    <div class="breakdown-header"><span>📆 ${w}</span><span style="color:var(--success)">₱${weeklyMap[w].total.toFixed(2)}</span></div>
                     <div class="breakdown-details"><span>In Fees: ₱${weeklyMap[w].in.toFixed(2)}</span><span>Out Fees: ₱${weeklyMap[w].out.toFixed(2)}</span></div>
                 </div>
             `).join('');
 
-            let sortedMonths = Object.keys(monthlyMap).sort().reverse();
+            // Sort and Render Monthly
+            let sortedMonths = Object.keys(monthlyMap).sort((a,b) => new Date(monthlyMap[b].rawDate) - new Date(monthlyMap[a].rawDate));
             document.getElementById('monthlyList').innerHTML = sortedMonths.length === 0 ? '<p style="text-align:center; color:#64748B;">No data.</p>' : sortedMonths.map(m => `
                 <div class="breakdown-card" style="border-left-color: #8B5CF6;">
-                    <div class="breakdown-header"><span>🗓️ Month: ${m}</span><span style="color:var(--success)">₱${monthlyMap[m].total.toFixed(2)}</span></div>
+                    <div class="breakdown-header"><span>🗓️ ${m}</span><span style="color:var(--success)">₱${monthlyMap[m].total.toFixed(2)}</span></div>
                     <div class="breakdown-details"><span>In Fees: ₱${monthlyMap[m].in.toFixed(2)}</span><span>Out Fees: ₱${monthlyMap[m].out.toFixed(2)}</span></div>
                 </div>
             `).join('');
