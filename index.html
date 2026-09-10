@@ -7,6 +7,8 @@
     <!-- Google Fonts & Lucide Icons -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Supabase JS Library -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         :root {
             --primary: #007DF4;
@@ -103,7 +105,7 @@
             </div>
             <div class="form-group">
                 <label>Optional Reference Number</label>
-                <input type="text" id="ci_ref" placeholder="13-digit reference code" maxlength="13" pattern="^[0-9]{13}$">
+                <input type="text" id="ci_ref" placeholder="Optional ref code">
             </div>
             <button type="submit" class="btn"><i data-lucide="check-circle"></i> Save Cash-In</button>
         </form>
@@ -203,6 +205,11 @@
     <script>
         lucide.createIcons();
 
+        // 🔗 SUPABASE CLOUD CONFIGURATION
+        const SUPABASE_URL = 'YOUR_SUPABASE_URL_HERE';
+        const SUPABASE_KEY = 'YOUR_SUPABASE_ANON_KEY_HERE';
+        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
         function setCurrentTime() {
             const now = new Date();
             now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
@@ -213,7 +220,18 @@
         }
         setCurrentTime();
 
-        let transactions = JSON.parse(localStorage.getItem('gcash_transactions')) || [];
+        let transactions = [];
+
+        // Load data from Supabase Cloud on start
+        async function loadTransactions() {
+            let { data, error } = await supabaseClient.from('transactions').select('*').order('id', { ascending: false });
+            if (!error && data) {
+                transactions = data;
+                renderSummary();
+                renderRecords();
+            }
+        }
+        loadTransactions();
 
         function switchTab(tabId, event) {
             document.querySelectorAll('.section').forEach(sec => sec.classList.remove('active'));
@@ -248,7 +266,7 @@
             }
         }
 
-        function addTransaction(e, type) {
+        async function addTransaction(e, type) {
             e.preventDefault();
             let tx = { id: Date.now(), type: type };
 
@@ -259,7 +277,7 @@
                     return;
                 }
                 tx.date = document.getElementById('ci_date').value;
-                tx.claimDate = tx.date;
+                tx.claim_date = tx.date;
                 tx.name = document.getElementById('ci_name').value;
                 tx.identifier = num;
                 tx.amount = parseFloat(document.getElementById('ci_amount').value);
@@ -277,7 +295,7 @@
                 }
 
                 tx.date = document.getElementById('co_date').value;
-                tx.claimDate = document.getElementById('co_claim_date').value;
+                tx.claim_date = document.getElementById('co_claim_date').value;
                 tx.name = document.getElementById('co_name').value;
                 tx.identifier = document.getElementById('co_type').value;
                 tx.amount = parseFloat(document.getElementById('co_amount').value);
@@ -285,20 +303,28 @@
                 tx.ref = ref;
             }
 
-            transactions.unshift(tx);
-            localStorage.setItem('gcash_transactions', JSON.stringify(transactions));
-            alert(type + ' Saved Successfully!');
+            // Save to Supabase Cloud Database
+            let { error } = await supabaseClient.from('transactions').insert([tx]);
+            if (error) {
+                alert('Error saving to cloud: ' + error.message);
+                return;
+            }
+
+            await loadTransactions();
+            alert(type + ' Saved Successfully to Cloud!');
             e.target.reset();
             document.getElementById('refLiveAlert').innerHTML = '';
             setCurrentTime();
         }
 
-        function deleteTx(id) {
+        async function deleteTx(id) {
             if(confirm('Are you sure you want to delete this record?')) {
-                transactions = transactions.filter(t => t.id !== id);
-                localStorage.setItem('gcash_transactions', JSON.stringify(transactions));
-                renderRecords();
-                renderSummary();
+                let { error } = await supabaseClient.from('transactions').delete().eq('id', id);
+                if (error) {
+                    alert('Error deleting: ' + error.message);
+                    return;
+                }
+                await loadTransactions();
             }
         }
 
@@ -317,7 +343,7 @@
 
             let filtered = transactions.filter(t => {
                 let matchesType = (typeVal === 'ALL' || t.type === typeVal);
-                let matchesDate = (!dateVal || t.date.startsWith(dateVal) || t.claimDate.startsWith(dateVal));
+                let matchesDate = (!dateVal || t.date.startsWith(dateVal) || t.claim_date.startsWith(dateVal));
                 let matchesSearch = (!searchTxt || t.name.toLowerCase().includes(searchTxt) || t.ref.toLowerCase().includes(searchTxt) || t.identifier.toLowerCase().includes(searchTxt));
                 return matchesType && matchesDate && matchesSearch;
             });
@@ -334,7 +360,7 @@
                         <button class="btn-danger" onclick="deleteTx(${t.id})">Delete</button>
                     </div>
                     <div><b>Sent Date:</b> ${t.date.replace('T', ' ')}</div>
-                    ${t.type === 'Cash-Out' ? `<div><b>Claim Date:</b> ${t.claimDate.replace('T', ' ')}</div>` : ''}
+                    ${t.type === 'Cash-Out' ? `<div><b>Claim Date:</b> ${t.claim_date.replace('T', ' ')}</div>` : ''}
                     <div><b>Name:</b> ${t.name}</div>
                     <div><b>${t.type === 'Cash-In' ? 'Number' : 'Type'}:</b> ${t.identifier}</div>
                     <div><b>Amount:</b> ₱${t.amount.toFixed(2)} | <b>Ref:</b> ${t.ref}</div>
@@ -348,7 +374,7 @@
 
             transactions.forEach(t => {
                 totalAllTime += t.fee;
-                let day = (t.claimDate || t.date).split('T')[0];
+                let day = (t.claim_date || t.date).split('T')[0];
                 let month = day.substring(0, 7);
                 
                 let d = new Date(day);
@@ -401,7 +427,7 @@
             if(transactions.length === 0) { alert('No data to export!'); return; }
             let csv = 'Type,Sent Date,Claim Date,Name,Identifier/Method,Amount,Fee,Reference\n';
             transactions.forEach(t => {
-                csv += `"${t.type}","${t.date}","${t.claimDate}","${t.name}","${t.identifier}",${t.amount},${t.fee},"${t.ref}"\n`;
+                csv += `"${t.type}","${t.date}","${t.claim_date}","${t.name}","${t.identifier}",${t.amount},${t.fee},"${t.ref}"\n`;
             });
             let blob = new Blob([csv], { type: 'text/csv' });
             let url = window.URL.createObjectURL(blob);
