@@ -65,6 +65,8 @@
         .filter-row input, .filter-row select { font-size: 0.85rem; padding: 8px 10px; background: #FFF; width: 100%; }
 
         .inline-alert { font-size: 0.75rem; margin-top: 4px; font-weight: 600; display: block; }
+        
+        .bulk-item-box { background: #F8FAFC; border: 1px solid var(--border); padding: 10px; border-radius: 8px; margin-bottom: 8px; font-size: 0.8rem; display: flex; justify-content: space-between; align-items: center; }
     </style>
 </head>
 <body>
@@ -77,6 +79,7 @@
     <div class="tabs">
         <button class="tab-btn active" onclick="switchTab('cashin', event)"><i data-lucide="arrow-down-left"></i> Cash-In</button>
         <button class="tab-btn" onclick="switchTab('cashout', event)"><i data-lucide="arrow-up-right"></i> Cash-Out</button>
+        <button class="tab-btn" onclick="switchTab('bulk', event)"><i data-lucide="scan-text"></i> Bulk Scan</button>
         <button class="tab-btn" onclick="switchTab('summary', event)"><i data-lucide="bar-chart-3"></i> Summary</button>
         <button class="tab-btn" onclick="switchTab('records', event)"><i data-lucide="history"></i> History</button>
     </div>
@@ -169,6 +172,24 @@
         </form>
     </div>
 
+    <!-- BULK HISTORY SCAN SECTION -->
+    <div id="bulk" class="section">
+        <h2><i data-lucide="scan-text" style="color:var(--primary)"></i> Bulk Scan Transaction History</h2>
+        <p style="font-size: 0.85rem; color: #64748B; margin-bottom: 15px;">Upload a screenshot of your GCash <b>Transaction History</b> feed. The system will extract multiple items so you can review and save them all at once!</p>
+
+        <div class="form-group" style="background: #E0F2FE; padding: 15px; border-radius: 12px; border: 2px dashed var(--primary); text-align: center;">
+            <label style="color: var(--primary); font-size: 0.9rem; margin-bottom: 8px;">🖼️ Upload History Screenshot</label>
+            <input type="file" id="bulkFile" accept="image/*" onchange="scanBulkHistory(this)" style="background: white; padding: 8px;">
+            <span id="bulkStatus" class="inline-alert" style="color: #0284C7; margin-top: 8px;"></span>
+        </div>
+
+        <div id="bulkResultsContainer" style="margin-top: 15px; display: none;">
+            <h3 style="font-size: 0.9rem; margin-bottom: 10px; color: var(--text);">Extracted Transactions (Review before saving):</h3>
+            <div id="bulkItemsList" style="max-height: 300px; overflow-y: auto; margin-bottom: 15px;"></div>
+            <button type="button" class="btn" onclick="saveAllBulkTransactions()" style="background: var(--success);"><i data-lucide="cloud-upload"></i> Save All to Cloud</button>
+        </div>
+    </div>
+
     <!-- SUMMARY SECTION -->
     <div id="summary" class="section">
         <h2><i data-lucide="trending-up"></i> Earnings Breakdown</h2>
@@ -239,6 +260,7 @@
         setCurrentTime();
 
         let transactions = [];
+        let parsedBulkItems = [];
 
         // Load data from Supabase Cloud on start
         async function loadTransactions() {
@@ -251,7 +273,7 @@
         }
         loadTransactions();
 
-        // 📷 RECEIPT SCANNING LOGIC (OCR) - Upgraded with sample receipt patterns
+        // 📷 SINGLE RECEIPT SCANNING LOGIC (OCR)
         async function scanReceipt(input, type) {
             let file = input.files[0];
             let statusSpan = document.getElementById(type === 'Cash-In' ? 'ci_scanStatus' : 'co_scanStatus');
@@ -263,7 +285,6 @@
                 let { data: { text } } = await Tesseract.recognize(file, 'eng');
                 statusSpan.innerText = "✔️ Scan complete! Auto-filling details...";
 
-                // 1. Precise 13-digit Reference Code match
                 let refMatch = text.match(/(?:Ref(?:\s*No\.?)?[:\s]*)?(\b\d{13}\b)/i) || text.match(/\b\d{13}\b/);
                 if (refMatch) {
                     let code = refMatch[1] || refMatch[0];
@@ -276,7 +297,6 @@
                     }
                 }
 
-                // 2. Precise Amount Match
                 let amountMatch = text.match(/(?:Total\s*Amount\s*Sent|Amount)\D*?([0-9]{1,3}(?:,[0-9]{3})*\.[0-9]{2})/i) || text.match(/([0-9]{1,3}(?:,[0-9]{3})*\.[0-9]{2})/);
                 if (amountMatch) {
                     let cleanAmount = amountMatch[1].replace(/,/g, '');
@@ -284,7 +304,6 @@
                     if (amountInput) amountInput.value = cleanAmount;
                 }
 
-                // 3. Capture GCash Mobile Number if present for Cash-In
                 let phoneMatch = text.match(/(\+63|0)\s*9\d{2}\s*\d{3}\s*\d{4}/);
                 if (phoneMatch && type === 'Cash-In') {
                     let cleanNum = phoneMatch[0].replace(/\D/g, '');
@@ -301,6 +320,105 @@
                 console.error(err);
                 statusSpan.innerText = "❌ Could not read image. Please enter manually.";
             }
+        }
+
+        // 📋 BULK HISTORY FEED SCANNING LOGIC (OCR)
+        async function scanBulkHistory(input) {
+            let file = input.files[0];
+            let statusSpan = document.getElementById('bulkStatus');
+            let container = document.getElementById('bulkResultsContainer');
+            let listDiv = document.getElementById('bulkItemsList');
+            if (!file) return;
+
+            statusSpan.innerText = "⏳ Scanning transaction history feed...";
+            container.style.display = 'none';
+
+            try {
+                let { data: { text } } = await Tesseract.recognize(file, 'eng');
+                statusSpan.innerText = "✔️ Scan complete! Processing items...";
+
+                // Regular expression to catch lines with amounts (+/-XX.XX or similar)
+                let lines = text.split('\n');
+                parsedBulkItems = [];
+
+                let nowIso = new Date().toISOString().slice(0,16);
+
+                // Simple parser loop looking for amounts with + or - signs
+                lines.forEach(line => {
+                    let amtMatch = line.match(/([+-]?\s*\d{1,3}(?:,\d{3})*\.\d{2})/);
+                    if (amtMatch) {
+                        let rawAmtStr = amtMatch[1].replace(/\s+/g, '');
+                        let isNegative = rawAmtStr.startsWith('-');
+                        let cleanAmt = parseFloat(rawAmtStr.replace(/[+-]/g, '').replace(/,/g, ''));
+                        
+                        // Guess title/type based on line text or nearby text
+                        let lowerLine = line.toLowerCase();
+                        let txType = isNegative ? 'Cash-Out' : 'Cash-In';
+                        let desc = line.replace(amtMatch[0], '').trim() || 'GCash Transaction';
+
+                        parsedBulkItems.push({
+                            id: Date.now() + Math.random(),
+                            type: txType,
+                            date: nowIso,
+                            claim_date: nowIso,
+                            name: desc.length > 3 ? desc : 'Client',
+                            identifier: txType === 'Cash-In' ? '09123456789' : 'Direct GCash Send',
+                            amount: cleanAmt,
+                            fee: 0.00, // Default estimated fee, can be edited
+                            ref: 'BULK-' + Math.floor(100000 + Math.random() * 900000)
+                        });
+                    }
+                });
+
+                if (parsedBulkItems.length === 0) {
+                    statusSpan.innerText = "❌ No transactions detected. Try a clearer screenshot.";
+                    return;
+                }
+
+                statusSpan.innerText = `✅ Found ${parsedBulkItems.length} transactions! Review below.`;
+                container.style.display = 'block';
+
+                listDiv.innerHTML = parsedBulkItems.map((item, index) => `
+                    <div class="bulk-item-box">
+                        <div>
+                            <b>${item.type}</b> — ₱${item.amount.toFixed(2)}<br>
+                            <span style="color:#64748B;">Desc: ${item.name}</span>
+                        </div>
+                        <div>
+                            <label style="font-size:0.7rem;">Fee (₱):</label>
+                            <input type="number" step="0.01" value="${item.fee}" style="width:70px; padding:4px;" onchange="updateBulkFee(${index}, this.value)">
+                        </div>
+                    </div>
+                `).join('');
+
+            } catch (err) {
+                console.error(err);
+                statusSpan.innerText = "❌ Error reading history screenshot.";
+            }
+        }
+
+        function updateBulkFee(index, val) {
+            if (parsedBulkItems[index]) {
+                parsedBulkItems[index].fee = parseFloat(val) || 0;
+            }
+        }
+
+        async function saveAllBulkTransactions() {
+            if (parsedBulkItems.length === 0) return;
+
+            let { error } = await supabaseClient.from('transactions').insert(parsedBulkItems);
+            if (error) {
+                alert('Error saving bulk transactions: ' + error.message);
+                return;
+            }
+
+            alert(`🎉 Successfully saved ${parsedBulkItems.length} transactions to the cloud!`);
+            parsedBulkItems = [];
+            document.getElementById('bulkResultsContainer').style.display = 'none';
+            document.getElementById('bulkFile').value = '';
+            document.getElementById('bulkStatus').innerText = '';
+            await loadTransactions();
+            switchTab('records', { target: document.querySelector('.tabs button:nth-child(5)') });
         }
 
         function switchTab(tabId, event) {
@@ -383,7 +501,6 @@
             await loadTransactions();
             alert(type + ' Saved Successfully to Cloud!');
             e.target.reset();
-            // Reset scanner inputs and status messages
             if(type === 'Cash-In') {
                 document.getElementById('ci_receiptFile').value = '';
                 document.getElementById('ci_scanStatus').innerText = '';
@@ -457,30 +574,23 @@
                 let dayStr = (t.claim_date || t.date).split('T')[0];
                 let d = new Date(dayStr);
                 
-                // 1. Format Daily: e.g., "September 10, 2026" or "August 24, 2026"
                 let dayFormatted = `${monthNames[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
-
-                // 2. Format Monthly: e.g., "September 2026", "August 2026"
                 let monthFormatted = `${monthNames[d.getMonth()]} ${d.getFullYear()}`;
 
-                // 3. Format Weekly dynamically based on that specific month and year
                 let year = d.getFullYear();
                 let monthIdx = d.getMonth();
                 let firstDayOfMonth = new Date(year, monthIdx, 1);
                 let weekNum = Math.ceil((d.getDate() + firstDayOfMonth.getDay()) / 7);
                 let weekFormatted = `${monthNames[monthIdx]} ${year} - Week ${weekNum}`;
 
-                // Populate Daily Map
                 if(!dailyMap[dayFormatted]) dailyMap[dayFormatted] = { in: 0, out: 0, total: 0, rawDate: dayStr };
                 if(t.type === 'Cash-In') dailyMap[dayFormatted].in += t.fee; else dailyMap[dayFormatted].out += t.fee;
                 dailyMap[dayFormatted].total += t.fee;
 
-                // Populate Weekly Map
                 if(!weeklyMap[weekFormatted]) weeklyMap[weekFormatted] = { in: 0, out: 0, total: 0, rawDate: dayStr };
                 if(t.type === 'Cash-In') weeklyMap[weekFormatted].in += t.fee; else weeklyMap[weekFormatted].out += t.fee;
                 weeklyMap[weekFormatted].total += t.fee;
 
-                // Populate Monthly Map
                 if(!monthlyMap[monthFormatted]) monthlyMap[monthFormatted] = { in: 0, out: 0, total: 0, rawDate: dayStr };
                 if(t.type === 'Cash-In') monthlyMap[monthFormatted].in += t.fee; else monthlyMap[monthFormatted].out += t.fee;
                 monthlyMap[monthFormatted].total += t.fee;
@@ -488,7 +598,6 @@
 
             document.getElementById('totalEarnings').innerText = '₱' + totalAllTime.toFixed(2);
 
-            // Sort and Render Daily
             let sortedDays = Object.keys(dailyMap).sort((a,b) => new Date(dailyMap[b].rawDate) - new Date(dailyMap[a].rawDate));
             document.getElementById('dailyList').innerHTML = sortedDays.length === 0 ? '<p style="text-align:center; color:#64748B;">No data.</p>' : sortedDays.map(d => `
                 <div class="breakdown-card">
@@ -497,7 +606,6 @@
                 </div>
             `).join('');
 
-            // Sort and Render Weekly
             let sortedWeeks = Object.keys(weeklyMap).sort((a,b) => new Date(weeklyMap[b].rawDate) - new Date(weeklyMap[a].rawDate));
             document.getElementById('weeklyList').innerHTML = sortedWeeks.length === 0 ? '<p style="text-align:center; color:#64748B;">No data.</p>' : sortedWeeks.map(w => `
                 <div class="breakdown-card" style="border-left-color: var(--primary);">
@@ -506,7 +614,6 @@
                 </div>
             `).join('');
 
-            // Sort and Render Monthly
             let sortedMonths = Object.keys(monthlyMap).sort((a,b) => new Date(monthlyMap[b].rawDate) - new Date(monthlyMap[a].rawDate));
             document.getElementById('monthlyList').innerHTML = sortedMonths.length === 0 ? '<p style="text-align:center; color:#64748B;">No data.</p>' : sortedMonths.map(m => `
                 <div class="breakdown-card" style="border-left-color: #8B5CF6;">
