@@ -9,6 +9,8 @@
     <script src="https://unpkg.com/lucide@latest"></script>
     <!-- Supabase JS Library -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- Tesseract OCR JS Library for Image Reading -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <style>
         :root {
             --primary: #007DF4;
@@ -82,6 +84,14 @@
     <!-- CASH IN SECTION -->
     <div id="cashin" class="section active">
         <h2><i data-lucide="arrow-down-circle" style="color:var(--success)"></i> New Cash-In Transaction</h2>
+
+        <!-- Receipt Scanner Box -->
+        <div class="form-group" style="background: #E0F2FE; padding: 12px; border-radius: 10px; border: 1px dashed var(--primary);">
+            <label style="color: var(--primary);">📷 Quick Scan GCash Receipt (Optional)</label>
+            <input type="file" id="ci_receiptFile" accept="image/*" onchange="scanReceipt(this, 'Cash-In')" style="background: white;">
+            <span id="ci_scanStatus" class="inline-alert" style="color: #0284C7;"></span>
+        </div>
+
         <form id="cashinForm" onsubmit="addTransaction(event, 'Cash-In')">
             <div class="form-group">
                 <label>Date & Time</label>
@@ -114,6 +124,14 @@
     <!-- CASH OUT SECTION -->
     <div id="cashout" class="section">
         <h2><i data-lucide="arrow-up-circle" style="color:var(--primary)"></i> New Cash-Out Transaction</h2>
+
+        <!-- Receipt Scanner Box -->
+        <div class="form-group" style="background: #E0F2FE; padding: 12px; border-radius: 10px; border: 1px dashed var(--primary);">
+            <label style="color: var(--primary);">📷 Quick Scan GCash Receipt (Optional)</label>
+            <input type="file" id="co_receiptFile" accept="image/*" onchange="scanReceipt(this, 'Cash-Out')" style="background: white;">
+            <span id="co_scanStatus" class="inline-alert" style="color: #0284C7;"></span>
+        </div>
+
         <form id="cashoutForm" onsubmit="addTransaction(event, 'Cash-Out')">
             <div class="form-group">
                 <label>Transaction Date (Sent Date)</label>
@@ -233,6 +251,58 @@
         }
         loadTransactions();
 
+        // 📷 RECEIPT SCANNING LOGIC (OCR) - Upgraded with sample receipt patterns
+        async function scanReceipt(input, type) {
+            let file = input.files[0];
+            let statusSpan = document.getElementById(type === 'Cash-In' ? 'ci_scanStatus' : 'co_scanStatus');
+            if (!file) return;
+
+            statusSpan.innerText = "⏳ Reading receipt image...";
+
+            try {
+                let { data: { text } } = await Tesseract.recognize(file, 'eng');
+                statusSpan.innerText = "✔️ Scan complete! Auto-filling details...";
+
+                // 1. Precise 13-digit Reference Code match
+                let refMatch = text.match(/(?:Ref(?:\s*No\.?)?[:\s]*)?(\b\d{13}\b)/i) || text.match(/\b\d{13}\b/);
+                if (refMatch) {
+                    let code = refMatch[1] || refMatch[0];
+                    let refInput = document.getElementById(type === 'Cash-In' ? 'ci_ref' : 'co_ref');
+                    if (refInput) {
+                        refInput.value = code;
+                        if (type === 'Cash-Out' && typeof liveCheckRef === 'function') {
+                            liveCheckRef(code);
+                        }
+                    }
+                }
+
+                // 2. Precise Amount Match
+                let amountMatch = text.match(/(?:Total\s*Amount\s*Sent|Amount)\D*?([0-9]{1,3}(?:,[0-9]{3})*\.[0-9]{2})/i) || text.match(/([0-9]{1,3}(?:,[0-9]{3})*\.[0-9]{2})/);
+                if (amountMatch) {
+                    let cleanAmount = amountMatch[1].replace(/,/g, '');
+                    let amountInput = document.getElementById(type === 'Cash-In' ? 'ci_amount' : 'co_amount');
+                    if (amountInput) amountInput.value = cleanAmount;
+                }
+
+                // 3. Capture GCash Mobile Number if present for Cash-In
+                let phoneMatch = text.match(/(\+63|0)\s*9\d{2}\s*\d{3}\s*\d{4}/);
+                if (phoneMatch && type === 'Cash-In') {
+                    let cleanNum = phoneMatch[0].replace(/\D/g, '');
+                    if (cleanNum.startsWith('63')) cleanNum = '0' + cleanNum.substring(2);
+                    let numInput = document.getElementById('ci_number');
+                    if (numInput) numInput.value = cleanNum;
+                }
+
+                setTimeout(() => { 
+                    statusSpan.innerText = "✅ Auto-filled! Please review details before saving."; 
+                }, 1000);
+
+            } catch (err) {
+                console.error(err);
+                statusSpan.innerText = "❌ Could not read image. Please enter manually.";
+            }
+        }
+
         function switchTab(tabId, event) {
             document.querySelectorAll('.section').forEach(sec => sec.classList.remove('active'));
             document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
@@ -313,6 +383,14 @@
             await loadTransactions();
             alert(type + ' Saved Successfully to Cloud!');
             e.target.reset();
+            // Reset scanner inputs and status messages
+            if(type === 'Cash-In') {
+                document.getElementById('ci_receiptFile').value = '';
+                document.getElementById('ci_scanStatus').innerText = '';
+            } else {
+                document.getElementById('co_receiptFile').value = '';
+                document.getElementById('co_scanStatus').innerText = '';
+            }
             document.getElementById('refLiveAlert').innerHTML = '';
             setCurrentTime();
         }
